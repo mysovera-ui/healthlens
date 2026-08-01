@@ -293,3 +293,102 @@ export async function sendConsultationRequestTeamAlert(opts: {
   }
   return data;
 }
+
+export function freePreviewEmailHtml({
+  parameter,
+  sentence,
+  markersCount,
+  previewUrl,
+}: {
+  parameter: string;
+  sentence: string;
+  markersCount: number;
+  previewUrl: string;
+}): string {
+  const remaining = Math.max(markersCount - 1, 0);
+  return `
+  <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #1F2937;">
+    <p style="color:#0F766E; font-weight:600; margin-bottom: 4px;">HealthLens</p>
+    <h2 style="margin-top: 0;">Here's what your ${parameter} result means</h2>
+    <p style="background:#F0FDFA; border:1px solid #99F6E4; border-radius:8px; padding:14px 16px; color:#134E4A;">
+      ${sentence}
+    </p>
+    ${remaining > 0 ? `
+    <p>
+      We also found <strong>${remaining} more result${remaining === 1 ? "" : "s"}</strong> in your report
+      that we haven't unlocked yet — things like cholesterol, liver function, kidney function, and more,
+      each explained the same plain-language way.
+    </p>` : ""}
+    <p>
+      <a href="${previewUrl}" style="display:inline-block; background:#0F766E; color:#fff; padding:12px 20px; border-radius:8px; text-decoration:none; font-weight:600;">
+        See my free preview
+      </a>
+    </p>
+    <p style="color:#6B7280; font-size: 14px;">
+      This is an educational summary, not a diagnosis. Please discuss your results with your doctor.
+    </p>
+    <p style="color:#9CA3AF; font-size: 12px; margin-top: 32px;">
+      HealthLens
+    </p>
+  </div>`;
+}
+
+export async function sendFreePreviewEmail(opts: {
+  to: string;
+  parameter: string;
+  sentence: string;
+  markersCount: number;
+  previewUrl: string;
+}) {
+  const resend = getClient();
+  const html = freePreviewEmailHtml(opts);
+  const { data, error } = await resend.emails.send({
+    from: FROM_ADDRESS,
+    to: opts.to,
+    subject: `Here's what your ${opts.parameter} result means`,
+    html,
+  });
+  if (error) {
+    throw new Error(error.message || "Failed to send email");
+  }
+  return data;
+}
+
+export function leadTeamAlertHtml({
+  email,
+  parameter,
+  markersCount,
+}: {
+  email: string;
+  parameter: string;
+  markersCount: number;
+}): string {
+  return `
+  <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #1F2937;">
+    <p style="color:#0F766E; font-weight:600; margin-bottom: 4px;">New free-preview lead</p>
+    <h2 style="margin-top: 0;">${email}</h2>
+    <p>Uploaded a report, got a free preview of <strong>${parameter}</strong>, and ${markersCount} marker(s) were detected total.</p>
+    <p style="color:#6B7280; font-size: 14px; margin-top: 24px;">
+      Manage this in the dashboard under Leads.
+    </p>
+  </div>`;
+}
+
+export async function sendLeadTeamAlert(opts: {
+  email: string;
+  parameter: string;
+  markersCount: number;
+}) {
+  const resend = getClient();
+  const html = leadTeamAlertHtml(opts);
+  const { data, error } = await resend.emails.send({
+    from: FROM_ADDRESS,
+    to: TEAM_NOTIFICATION_EMAIL,
+    subject: `New free-preview lead: ${opts.email}`,
+    html,
+  });
+  if (error) {
+    throw new Error(error.message || "Failed to send email");
+  }
+  return data;
+}

@@ -123,3 +123,15 @@ export const REPORT_TYPES: { value: ReportType; label: string }[] = [
   { value: "FBC", label: "Full Blood Count" },
   { value: "other", label: "Other" },
 ];
+
+export interface LeadPreview {
+  id: string;
+  email: string;
+  file_urls: string[];
+  preview_parameter: string | null;
+  preview_sentence: string | null;
+  preview_status: string | null;
+  markers_detected_count: number;
+  contacted: boolean;
+  created_at: string;
+}

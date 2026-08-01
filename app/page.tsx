@@ -42,6 +42,12 @@ export default function Home() {
           Reports delivered within 24–48 hours by email.
         </p>
         <p className="mt-2 text-sm text-neutral-500">
+          Not ready to pay yet?{" "}
+          <Link href="/free-preview" className="text-teal-700 hover:underline">
+            Get one result explained free
+          </Link>
+        </p>
+        <p className="mt-2 text-sm text-neutral-500">
           Submitted before?{" "}
           <Link href="/portal/login" className="text-teal-700 hover:underline">
             View your report history

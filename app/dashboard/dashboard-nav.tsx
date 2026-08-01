@@ -72,6 +72,17 @@ function IconClose(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function IconUsers(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 20c.7-3.2 3-5 5.5-5s4.8 1.8 5.5 5" />
+      <circle cx="17" cy="9" r="2.3" />
+      <path d="M15.2 12.2c1.9.4 3.4 1.9 3.8 3.8" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/dashboard",
@@ -83,7 +94,14 @@ const NAV_ITEMS: NavItem[] = [
         !p.startsWith("/dashboard/follow-ups") &&
         !p.startsWith("/dashboard/analytics") &&
         !p.startsWith("/dashboard/consultations") &&
-        !p.startsWith("/dashboard/feedback")),
+        !p.startsWith("/dashboard/feedback") &&
+        !p.startsWith("/dashboard/leads")),
+  },
+  {
+    href: "/dashboard/leads",
+    label: "Leads",
+    icon: IconUsers,
+    match: (p) => p.startsWith("/dashboard/leads"),
   },
   {
     href: "/dashboard/follow-ups",

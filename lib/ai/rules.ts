@@ -892,6 +892,21 @@ export function generateStructuredReport(
   };
 }
 
+// Picks a single finding to show for free in the lead-magnet preview flow.
+// Prefers a flagged (out-of-range) result since that's the strongest hook --
+// "here's what's off" is more compelling than a reassuring normal value --
+// then falls back to a normal or informational finding. Unrecognized
+// (unparseable) values are skipped since they wouldn't read as trustworthy.
+export function pickFreePreviewFinding(report: StructuredReport): FindingResult | null {
+  const all = report.panels.flatMap((p) => p.findings);
+  return (
+    all.find((f) => f.status === "flagged") ??
+    all.find((f) => f.status === "normal") ??
+    all.find((f) => f.status === "info") ??
+    null
+  );
+}
+
 export function renderReportText(report: StructuredReport, customerName?: string, clinicalHistory?: string | null): string {
   const lines: string[] = [];
   lines.push(`CLINICAL HEALTH REPORT SUMMARY — ${customerName ?? ""}`.trim());
