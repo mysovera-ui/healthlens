@@ -56,6 +56,10 @@ export interface ReportSubmission {
   referring_doctor_email: string | null;
   report_tier: ReportTier;
   follow_up_status: FollowUpStatus;
+  ai_draft_generated_at: string | null;
+  report_version: number;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
 }
 
 export interface ReportDelivery {

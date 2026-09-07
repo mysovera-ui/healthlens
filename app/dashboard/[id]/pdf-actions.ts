@@ -16,7 +16,7 @@ export async function generatePdfAction(submissionId: string): Promise<PdfAction
   const { data: submission, error: fetchError } = await supabase
     .from("report_submissions")
     .select(
-      "customer_name, age, gender, reference_code, submitted_at, ai_structured_result, ai_summary_review_status, clinical_history, extracted_full_name, extracted_age, extracted_gender, extracted_nric",
+      "customer_name, age, gender, reference_code, submitted_at, ai_structured_result, ai_summary_review_status, clinical_history, extracted_full_name, extracted_age, extracted_gender, extracted_nric, ai_draft_generated_at, report_version, reviewed_by, reviewed_at",
     )
     .eq("id", submissionId)
     .single();
@@ -40,6 +40,10 @@ export async function generatePdfAction(submissionId: string): Promise<PdfAction
       submittedAt: submission.submitted_at,
       reviewStatus: submission.ai_summary_review_status,
       clinicalHistory: submission.clinical_history,
+      interpretationDate: submission.ai_draft_generated_at,
+      reportVersion: submission.report_version,
+      reviewedBy: submission.reviewed_by,
+      reviewedAt: submission.reviewed_at,
     });
     buffer = await renderToBuffer(element as Parameters<typeof renderToBuffer>[0]);
   } catch (err) {

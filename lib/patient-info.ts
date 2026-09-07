@@ -44,3 +44,26 @@ export function normalizeNric(raw: string | null | undefined): string | null {
   if (digits.length !== 12) return null;
   return `${digits.slice(0, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 12)}`;
 }
+
+// For anywhere the NRIC is *displayed* (PDF cover page, patient details
+// table) rather than stored/edited — shows only the last 4 digits, e.g.
+// "850714-02-6693" -> "******-**-6693", matching how banks/hospitals in
+// Malaysia commonly partially mask this number. Always run values through
+// normalizeNric() first so the input is in the expected dashed 12-digit
+// format; anything else is masked conservatively (only the last 4 characters
+// shown) rather than left in the clear.
+export function maskNric(nric: string | null | undefined): string | null {
+  if (!nric) return null;
+  if (/^\d{6}-\d{2}-\d{4}$/.test(nric)) {
+    return `******-**-${nric.slice(-4)}`;
+  }
+  // Not the expected normalized shape — mask everything except the last 4
+  // characters, preserving any dashes so the grouping is still readable.
+  const visible = nric.slice(-4);
+  const masked = nric
+    .slice(0, -4)
+    .split("")
+    .map((c) => (c === "-" ? "-" : "*"))
+    .join("");
+  return `${masked}${visible}`;
+}

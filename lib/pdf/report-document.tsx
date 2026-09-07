@@ -1,6 +1,7 @@
 import React from "react";
 import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 import type { StructuredReport, RiskLevel } from "@/lib/ai/rules";
+import { maskNric } from "@/lib/patient-info";
 
 const INK = "#22252A";
 const GOLD = "#A9812F";
@@ -69,12 +70,17 @@ const s = StyleSheet.create({
   historyBox: { marginTop: 10, marginBottom: 4, padding: 12, backgroundColor: CREAM, borderLeftWidth: 3, borderLeftColor: GOLD, fontSize: 9 },
   historyTitle: { fontFamily: "Times-Bold", fontSize: 10, color: INK, marginBottom: 4 },
   historyNote: { fontFamily: "Times-Italic", fontSize: 8, color: "#8A7F6C", marginBottom: 6 },
+  warningBox: { marginTop: 12, marginBottom: 4, padding: 11, backgroundColor: "#FDF2F2", borderWidth: 1, borderColor: RISK_COLOR.high },
+  warningTitle: { fontFamily: "Times-Bold", fontSize: 9.5, color: RISK_COLOR.high, marginBottom: 3 },
+  warningText: { fontSize: 8.5, color: "#5A2020" },
+  metaBox: { marginTop: 14, padding: 10, backgroundColor: CREAM, fontSize: 8, color: "#6B6355" },
+  referenceSourcesTitle: { fontFamily: "Times-Bold", fontSize: 9, color: INK, marginBottom: 4 },
 });
 
 function Masthead({ refCode }: { refCode: string }) {
   return (
     <View style={s.masthead} fixed>
-      <Text style={s.mastheadBrand}>MYSOVERA</Text>
+      <Text style={s.mastheadBrand}>HEALTHLENS</Text>
       <Text style={s.mastheadRef}>PERSONAL HEALTH PROFILE  ·  {refCode}</Text>
     </View>
   );
@@ -90,28 +96,41 @@ function Footer() {
 
 export function ReportDocument({
   report, customerName, age, gender, nric, referenceCode, submittedAt, reviewStatus, clinicalHistory,
+  interpretationDate, reportVersion, reviewedBy, reviewedAt,
 }: {
   report: StructuredReport; customerName: string; age?: number | null; gender?: string | null;
   nric?: string | null;
   referenceCode: string; submittedAt: string; reviewStatus: string; clinicalHistory?: string | null;
+  // When the rule engine produced this interpretation — distinct from Sample
+  // Date (lab draw) and Report Printed (changes on every PDF re-render).
+  interpretationDate?: string | null;
+  // Bumped each time the draft is regenerated, so an amended report is
+  // distinguishable from the original one a customer may have already seen.
+  reportVersion?: number | null;
+  // Staff email of whoever actually clicked "Approve" on this report, and
+  // when — only set once a human has reviewed it (see setReviewStatusAction).
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
 }) {
   const printedDate = new Date().toLocaleDateString("en-GB");
   const sampleDate = new Date(submittedAt).toLocaleDateString("en-GB");
+  const interpretedDate = interpretationDate ? new Date(interpretationDate).toLocaleDateString("en-GB") : null;
+  const reviewedDate = reviewedAt ? new Date(reviewedAt).toLocaleDateString("en-GB") : null;
   const rec = report.recommendations;
 
   return (
     <Document>
       <Page size="A4" style={s.coverPage}>
         <View style={s.coverFrame}>
-          <Text style={s.coverKicker}>MYSOVERA  ·  {new Date().getFullYear()}</Text>
+          <Text style={s.coverKicker}>HEALTHLENS  ·  {new Date().getFullYear()}</Text>
           <Text style={s.coverTitle}>My Personal{"\n"}Health Profile</Text>
           <View style={s.coverRule} />
           <Text style={s.coverTitleBM}>Profil Kesihatan Peribadi Saya</Text>
           <Text style={s.coverName}>{customerName}</Text>
-          {nric ? <Text style={s.coverNric}>NRIC {nric}</Text> : null}
+          {nric ? <Text style={s.coverNric}>NRIC {maskNric(nric)}</Text> : null}
           <Text style={s.coverSub}>REFERENCE {referenceCode}</Text>
         </View>
-        <Text style={s.coverFooter}>HEALTH BRIDGE SOLUTION</Text>
+        <Text style={s.coverFooter}>HEALTHLENS</Text>
       </Page>
 
       <Page size="A4" style={s.page} wrap>
@@ -120,16 +139,34 @@ export function ReportDocument({
         <Text style={s.h1BM}>Butiran Pengguna</Text>
         <View style={s.row}><Text style={s.label}>Name / Nama</Text><Text style={s.value}>{customerName || ""}</Text></View>
         <View style={s.row}><Text style={s.label}>Age / Umur</Text><Text style={s.value}>{age ?? ""}</Text></View>
-        <View style={s.row}><Text style={s.label}>NRIC / No. Kad Pengenalan</Text><Text style={s.value}>{nric ?? ""}</Text></View>
+        <View style={s.row}><Text style={s.label}>NRIC / No. Kad Pengenalan</Text><Text style={s.value}>{maskNric(nric) ?? ""}</Text></View>
         <View style={s.row}><Text style={s.label}>Gender / Jantina</Text><Text style={s.value}>{gender ?? ""}</Text></View>
         <View style={s.row}><Text style={s.label}>Sample Date</Text><Text style={s.value}>{sampleDate}</Text></View>
+        {interpretedDate && (
+          <View style={s.row}><Text style={s.label}>Interpretation Date</Text><Text style={s.value}>{interpretedDate}</Text></View>
+        )}
         <View style={s.row}><Text style={s.label}>Report Printed</Text><Text style={s.value}>{printedDate}</Text></View>
+        <View style={s.row}><Text style={s.label}>Report Version</Text><Text style={s.value}>v{reportVersion ?? 1}</Text></View>
+
+        <View style={s.warningBox} wrap={false}>
+          <Text style={s.warningTitle}>When to Seek Immediate Medical Attention</Text>
+          <Text style={s.warningText}>
+            Seek immediate medical attention if you experience confusion, persistent vomiting, difficulty
+            breathing, fainting, chest pain, weakness on one side of the body, or if your condition worsens
+            rapidly.
+          </Text>
+          <Text style={[s.warningText, { fontFamily: "Times-Italic", marginTop: 3 }]}>
+            Dapatkan rawatan perubatan segera jika anda mengalami kekeliruan, muntah berterusan, kesukaran
+            bernafas, pengsan, sakit dada, kelemahan pada sebelah badan, atau jika keadaan anda bertambah
+            teruk dengan cepat.
+          </Text>
+        </View>
 
         {clinicalHistory && (
           <View style={s.historyBox}>
             <Text style={s.historyTitle}>Clinical History (from uploaded records)</Text>
             <Text style={s.historyNote}>
-              As reported in the patient's discharge summary/imaging records — not generated by mysovera.
+              As reported in the patient's discharge summary/imaging records — not generated by HealthLens.
             </Text>
             <Text>{clinicalHistory}</Text>
           </View>
@@ -223,7 +260,9 @@ export function ReportDocument({
         <Text style={s.h1}>V. Recommendations</Text>
         <Text style={s.h1BM}>Cadangan</Text>
         <Text style={{ fontSize: 8, color: "#8A7F6C", fontFamily: "Times-Italic", marginBottom: 6 }}>
-          AI-suggested — review status: {reviewStatus}. Not a substitute for individualized medical advice.
+          {reviewedBy
+            ? `Reviewed and approved by ${reviewedBy}${reviewedDate ? ` on ${reviewedDate}` : ""}. Not a substitute for individualized medical advice.`
+            : `AI-suggested — review status: ${reviewStatus}. Not a substitute for individualized medical advice.`}
         </Text>
 
         {rec.medical.length > 0 && (
@@ -312,6 +351,39 @@ export function ReportDocument({
             ))}
           </>
         )}
+
+        <View style={s.goldRule} />
+
+        <Text style={s.h1}>VII. Reference Sources &amp; Limitations</Text>
+        <Text style={s.h1BM}>Sumber Rujukan &amp; Batasan</Text>
+        <View style={s.metaBox}>
+          <Text style={{ marginBottom: 6 }}>
+            <Text style={{ fontFamily: "Times-Bold" }}>Reference ranges: </Text>
+            Generalized adult reference ranges, modeled on standard Malaysian general-screening lab report
+            conventions. Individual labs may use slightly different reference ranges depending on their
+            equipment and population — always compare against the range printed on your original lab report
+            as well.
+          </Text>
+          <Text style={{ marginBottom: 6 }}>
+            <Text style={{ fontFamily: "Times-Bold" }}>How this interpretation was produced: </Text>
+            A deterministic, rule-based engine matches each result against the reference ranges above and
+            generates plain-language explanations and general lifestyle suggestions. No AI/LLM is used to
+            interpret the clinical meaning of results.
+          </Text>
+          <Text style={{ marginBottom: 6 }}>
+            <Text style={{ fontFamily: "Times-Bold" }}>Reviewer: </Text>
+            {reviewedBy
+              ? `Reviewed and approved by ${reviewedBy}${reviewedDate ? ` on ${reviewedDate}` : ""}.`
+              : "This report has not yet been reviewed by a member of our team."}
+          </Text>
+          <Text>
+            <Text style={{ fontFamily: "Times-Bold" }}>Limitations: </Text>
+            This is an automated, educational summary based only on the values entered or extracted from your
+            uploaded file(s). It cannot detect conditions not reflected in these results, does not account for
+            your full medical history or physical examination, and is not a diagnosis. Always confirm findings
+            with a qualified doctor.
+          </Text>
+        </View>
 
         <View style={s.disclaimerBox}>
           <Text style={s.disclaimerTitle}>Medical Disclaimer</Text>

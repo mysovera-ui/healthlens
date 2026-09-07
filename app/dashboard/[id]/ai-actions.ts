@@ -1,6 +1,7 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/service";
+import { createClient as createServerAuthClient } from "@/lib/supabase/server";
 import { logAudit } from "@/lib/db/audit";
 import { generateStructuredReport, renderReportText } from "@/lib/ai/rules";
 import { extractMarkersFromFiles } from "@/lib/ai/extract-markers";
@@ -115,13 +116,19 @@ export async function generateAiDraftAction(
 
   const { data: submission } = await supabase
     .from("report_submissions")
-    .select("customer_name")
+    .select("customer_name, report_version, ai_summary_draft")
     .eq("id", submissionId)
     .single();
 
   const report = generateStructuredReport(markerInput, {
     customerName: submission?.customer_name ?? undefined,
   });
+
+  // Only bump the version once a draft already existed — the very first
+  // generation for a submission stays at version 1.
+  const nextReportVersion = submission?.ai_summary_draft
+    ? (submission?.report_version ?? 1) + 1
+    : submission?.report_version ?? 1;
 
   if (report.markersDetected.length === 0) {
     return { error: "None of those markers were recognized. Check the format is like 'LDL: 4.8, HbA1c: 6.1'." };
@@ -147,6 +154,18 @@ export async function generateAiDraftAction(
       extracted_nric: extractedNric,
       referring_doctor_name: referringDoctorName,
       referring_doctor_email: referringDoctorEmail,
+      // Interpretation date: when the rule engine actually produced this
+      // reading, distinct from the lab's Sample Date and the PDF's "Report
+      // Printed" date (which changes every time the PDF is re-rendered).
+      ai_draft_generated_at: new Date().toISOString(),
+      // Bump the report version each time the draft is regenerated so an
+      // amended report is distinguishable from the original.
+      report_version: nextReportVersion,
+      // A fresh/regenerated draft is unreviewed again — clear any previous
+      // reviewer credit so the PDF doesn't wrongly claim a human reviewed
+      // content that has since changed.
+      reviewed_by: null,
+      reviewed_at: null,
       // Regenerating the draft invalidates any previously generated PDF —
       // the coach should regenerate the PDF from the fresh draft.
       generated_pdf_url: null,
@@ -205,15 +224,37 @@ export async function setReviewStatusAction(
 ): Promise<AiActionState> {
   const supabase = createServiceClient();
 
+  // Credit the actual logged-in staff member as the reviewer when a report is
+  // approved, so the PDF can show a real name instead of a generic status
+  // word. Falls back to no credit if the session can't be read for any
+  // reason — never blocks the status update itself.
+  let reviewerEmail: string | null = null;
+  if (status === "approved") {
+    try {
+      const authClient = await createServerAuthClient();
+      const {
+        data: { user },
+      } = await authClient.auth.getUser();
+      reviewerEmail = user?.email ?? null;
+    } catch (err) {
+      console.error("could not resolve reviewer identity", err);
+    }
+  }
+
   const { error } = await supabase
     .from("report_submissions")
-    .update({ ai_summary_review_status: status })
+    .update({
+      ai_summary_review_status: status,
+      ...(status === "approved"
+        ? { reviewed_by: reviewerEmail, reviewed_at: new Date().toISOString() }
+        : {}),
+    })
     .eq("id", submissionId);
 
   if (error) return { error: "Could not update review status." };
 
   await logAudit(supabase, {
-    actor: "healthbridge-team",
+    actor: reviewerEmail ?? "healthbridge-team",
     action: "ai_draft_review_status_changed",
     target_table: "report_submissions",
     target_id: submissionId,

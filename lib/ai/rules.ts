@@ -88,6 +88,11 @@ interface EvalResult {
   sentenceBM: string;
   status: "normal" | "flagged";
   risk: RiskLevel;
+  // Only set when a normalize() step changed the parsed numeric value (e.g. a
+  // PCV "%" reading converted to its L/L fraction). When set, this corrected
+  // value should be used for display instead of the originally parsed number,
+  // so the report table stays consistent with the sentence and reference range.
+  displayValue?: number;
 }
 
 interface ParamRule {
@@ -146,6 +151,13 @@ function rangeRule(
     lowSentence?: string;
     lowSentenceBM?: string;
     normalSentenceBM?: string;
+    // Defense-in-depth unit normalization: applied to the parsed numeric value
+    // before it's compared against the range or shown in any sentence. Use this
+    // when a parameter is prone to being reported in the wrong unit (e.g. PCV
+    // reported as a "%" like 47 instead of the expected L/L fraction like 0.47)
+    // so a bad extraction still gets flagged sanely instead of producing a wildly
+    // wrong out-of-range result.
+    normalize?: (v: number) => number;
   },
 ): ParamRule {
   const refRange =
@@ -161,7 +173,9 @@ function rangeRule(
     label,
     kind: "numeric",
     refRange,
-    evaluate: (_raw, v) => {
+    evaluate: (_raw, rawNumeric) => {
+      const v = opts?.normalize ? opts.normalize(rawNumeric) : rawNumeric;
+      const displayValue = v !== rawNumeric ? v : undefined;
       if (high !== null && v > high) {
         return {
           flag: `${label} high`,
@@ -173,6 +187,7 @@ function rangeRule(
             `${label} anda (${v} ${unit}) melebihi julat biasa (${refRange}).`,
           status: "flagged",
           risk: opts?.highRisk ?? "moderate",
+          displayValue,
         };
       }
       if (low !== null && v < low) {
@@ -186,6 +201,7 @@ function rangeRule(
             `${label} anda (${v} ${unit}) di bawah julat biasa (${refRange}).`,
           status: "flagged",
           risk: opts?.lowRisk ?? "moderate",
+          displayValue,
         };
       }
       return {
@@ -195,6 +211,7 @@ function rangeRule(
           `${label} anda (${v} ${unit}) berada dalam julat biasa (${refRange}).`,
         status: "normal",
         risk: "low",
+        displayValue,
       };
     },
   };
@@ -211,7 +228,14 @@ const PANELS: PanelDef[] = [
         lowRisk: "moderate",
       }),
       rangeRule(/^rbc$/i, "RBC (red cell count)", "x10^12/L", 4.0, 5.4),
-      rangeRule(/^pcv$/i, "PCV", "L/L", 0.36, 0.46),
+      rangeRule(/^pcv$/i, "PCV", "L/L", 0.36, 0.46, {
+        // PCV/Hematocrit is very commonly printed as a percentage (e.g. "47") on
+        // Malaysian lab reports rather than the L/L decimal fraction (0.47) this
+        // rule expects. A true L/L fraction is always < 1, so any value > 1 is
+        // almost certainly a percentage that should be divided by 100. This
+        // catches the case even if the AI extraction step misses the conversion.
+        normalize: (v) => (v > 1 ? v / 100 : v),
+      }),
       rangeRule(/^mcv$/i, "MCV", "fL", 80, 100),
       rangeRule(/^mch$/i, "MCH", "pg", 27, 32),
       rangeRule(/^mchc$/i, "MCHC", "g/L", 300, 350),
@@ -541,9 +565,116 @@ function riskRank(r: RiskLevel): number {
   return r === "high" ? 3 : r === "moderate" ? 2 : r === "low" ? 1 : 0;
 }
 
+interface RecommendationEntry {
+  medical?: Bilingual;
+  nutrition?: NutritionItem;
+  supplement?: SupplementItem;
+}
+
+// Most panels only ever have one clinically-relevant narrative regardless of
+// exactly which parameter tripped the flag (e.g. any flagged lipid marker
+// points to the same "discuss cardiovascular risk" conversation). Hematology
+// is different — a flagged Haemoglobin/PCV (possible polycythemia/dehydration
+// pattern), a flagged ESR (inflammation pattern), a flagged WBC (possible
+// infection pattern), and a flagged Platelets (clotting-risk pattern) are
+// clinically distinct and need different advice, not one ESR-shaped tip
+// applied to all of them. So hematology is keyed by a function that inspects
+// which specific findings were flagged, instead of a single static entry.
+function hematologyRecommendations(flagged: FindingResult[]): RecommendationEntry[] {
+  const isFlag = (re: RegExp) => flagged.some((f) => f.flag && re.test(f.flag));
+  const entries: RecommendationEntry[] = [];
+
+  if (isFlag(/^(Haemoglobin|RBC|PCV) high/i)) {
+    entries.push({
+      medical: {
+        en: "Discuss your elevated red blood cell result(s) with your doctor — possible causes range from dehydration to other conditions that are worth ruling out.",
+        bm: "Bincangkan keputusan sel darah merah yang tinggi dengan doktor anda — punca mungkin termasuk dehidrasi hingga keadaan lain yang perlu disingkirkan.",
+      },
+      nutrition: {
+        focus: "Elevated red blood cell count",
+        focusBM: "Kiraan sel darah merah tinggi",
+        action: "Stay well hydrated and avoid smoking; mention any high-altitude living or sleep-breathing issues to your doctor.",
+        actionBM: "Kekalkan hidrasi yang baik dan elakkan merokok; maklumkan doktor jika tinggal di dataran tinggi atau ada masalah pernafasan semasa tidur.",
+        target: "Identify and address the underlying cause",
+        targetBM: "Kenal pasti dan tangani punca asas",
+      },
+    });
+  }
+  if (isFlag(/^Haemoglobin low/i) || isFlag(/^RBC low/i) || isFlag(/^(MCV|MCH) low/i)) {
+    entries.push({
+      medical: {
+        en: "Discuss your low haemoglobin/red cell result(s) with your doctor — further tests (e.g. iron studies) may help identify the cause of possible anaemia.",
+        bm: "Bincangkan keputusan haemoglobin/sel darah merah rendah dengan doktor anda — ujian lanjut (cth. kajian zat besi) mungkin membantu mengenal pasti punca anemia yang mungkin berlaku.",
+      },
+      nutrition: {
+        focus: "Low haemoglobin / possible anaemia",
+        focusBM: "Haemoglobin rendah / kemungkinan anemia",
+        action: "Increase iron-rich foods (leafy greens, legumes, lean red meat) and pair with vitamin C to aid absorption.",
+        actionBM: "Tingkatkan pengambilan makanan kaya zat besi (sayur hijau, kekacang, daging merah tanpa lemak) dan gandingkan dengan vitamin C untuk membantu penyerapan.",
+        target: "Restore haemoglobin to typical range",
+        targetBM: "Kembalikan haemoglobin ke julat biasa",
+      },
+    });
+  }
+  if (isFlag(/^ESR high/i)) {
+    entries.push({
+      nutrition: {
+        focus: "Mild inflammation marker (ESR)",
+        focusBM: "Penanda keradangan ringan (ESR)",
+        action: "Maintain a balanced diet, stay well hydrated, and monitor symptoms.",
+        actionBM: "Kekalkan pemakanan seimbang, cukup hidrasi, dan pantau simptom.",
+        target: "Normalize inflammation markers",
+        targetBM: "Normalisasi penanda keradangan",
+      },
+    });
+  }
+  if (isFlag(/^WBC high/i) || isFlag(/^Neutrophils high/i)) {
+    entries.push({
+      medical: {
+        en: "Discuss your elevated white blood cell result with your doctor — this can reflect a current infection, inflammation, or stress response and is worth reviewing alongside your symptoms.",
+        bm: "Bincangkan keputusan sel darah putih yang tinggi dengan doktor anda — ini boleh menunjukkan jangkitan semasa, keradangan, atau tindak balas tekanan dan perlu disemak bersama simptom anda.",
+      },
+    });
+  }
+  if (isFlag(/^WBC low/i)) {
+    entries.push({
+      medical: {
+        en: "Discuss your low white blood cell result with your doctor, especially if you have been feeling unwell or fatigued.",
+        bm: "Bincangkan keputusan sel darah putih yang rendah dengan doktor anda, terutamanya jika anda kurang sihat atau keletihan.",
+      },
+    });
+  }
+  if (isFlag(/^Platelets/i)) {
+    entries.push({
+      medical: {
+        en: "Discuss your platelet count with your doctor — this can affect clotting and is worth reviewing, especially before any planned procedures.",
+        bm: "Bincangkan kiraan platelet anda dengan doktor — ini boleh menjejaskan pembekuan darah dan perlu disemak, terutamanya sebelum sebarang prosedur yang dirancang.",
+      },
+    });
+  }
+
+  // Fallback for any other flagged hematology parameter not covered above
+  // (e.g. RDW, MPV, PDW, Lymphocytes, Monocytes, Eosinophils, Basophils) so a
+  // flag never silently produces zero recommendations.
+  if (entries.length === 0) {
+    entries.push({
+      nutrition: {
+        focus: "Flagged blood count result",
+        focusBM: "Keputusan kiraan darah yang ditandakan",
+        action: "Maintain a balanced diet, stay well hydrated, and discuss this specific result with your doctor.",
+        actionBM: "Kekalkan pemakanan seimbang, cukup hidrasi, dan bincangkan keputusan ini dengan doktor anda.",
+        target: "Clarify with your doctor",
+        targetBM: "Perjelaskan bersama doktor anda",
+      },
+    });
+  }
+
+  return entries;
+}
+
 const RECOMMENDATION_LIBRARY: Record<
   string,
-  { medical?: Bilingual; nutrition?: NutritionItem; supplement?: SupplementItem }
+  RecommendationEntry | ((flagged: FindingResult[]) => RecommendationEntry[])
 > = {
   lipid: {
     medical: {
@@ -601,16 +732,7 @@ const RECOMMENDATION_LIBRARY: Record<
       benefitBM: "Menyokong kesihatan tulang, otot, dan imun.",
     },
   },
-  hematology: {
-    nutrition: {
-      focus: "Mild inflammation marker (ESR)",
-      focusBM: "Penanda keradangan ringan (ESR)",
-      action: "Maintain a balanced diet, stay well hydrated, and monitor symptoms.",
-      actionBM: "Kekalkan pemakanan seimbang, cukup hidrasi, dan pantau simptom.",
-      target: "Normalize inflammation markers",
-      targetBM: "Normalisasi penanda keradangan",
-    },
-  },
+  hematology: hematologyRecommendations,
   kidney: {
     medical: {
       en: "Discuss your kidney function results with your doctor, especially if this is a new or persistent finding.",
@@ -754,10 +876,11 @@ export function generateStructuredReport(
         continue;
       }
       const evaluated = rule.evaluate(raw, numeric);
+      const correctedNumeric = evaluated.displayValue ?? numeric;
       findingsByRule.set(rule, {
         parameter: rule.label,
-        rawValue: raw,
-        numericValue: rule.kind === "numeric" ? numeric : undefined,
+        rawValue: evaluated.displayValue !== undefined ? String(evaluated.displayValue) : raw,
+        numericValue: rule.kind === "numeric" ? correctedNumeric : undefined,
         refRange: rule.refRange,
         flag: evaluated.flag,
         sentence: evaluated.sentence,
@@ -825,9 +948,13 @@ export function generateStructuredReport(
   for (const p of flaggedPanels) {
     const lib = RECOMMENDATION_LIBRARY[p.key];
     if (!lib) continue;
-    if (lib.medical) recommendations.medical.push(lib.medical);
-    if (lib.nutrition) recommendations.nutrition.push(lib.nutrition);
-    if (lib.supplement) recommendations.supplements.push(lib.supplement);
+    const flaggedFindings = p.findings.filter((f) => f.status === "flagged");
+    const entries = typeof lib === "function" ? lib(flaggedFindings) : [lib];
+    for (const entry of entries) {
+      if (entry.medical) recommendations.medical.push(entry.medical);
+      if (entry.nutrition) recommendations.nutrition.push(entry.nutrition);
+      if (entry.supplement) recommendations.supplements.push(entry.supplement);
+    }
   }
 
   if (flaggedPanels.length > 0) {

@@ -78,6 +78,12 @@ ${KNOWN_PARAMETERS}
   (e.g. a printed "Haemoglobin 14.4 g/dL" must be output as "Haemoglobin: 144", not "Haemoglobin: 14.4" — outputting the
   raw 14.4 would be read as a severely abnormal g/L value and is wrong). Always check the unit column next to the result,
   don't assume.
+- Unit conversion — this system always expects PCV (Hematocrit) as a decimal fraction in L/L (e.g. "0.42"), not a
+  percentage. Many lab reports print it as a percentage instead (e.g. "PCV 42%" or "Hematocrit 42.0"). If the source
+  shows a % sign, or a value in the 30-55 range under a column labelled "%" or "HCT", divide by 100 before outputting
+  it (e.g. a printed "PCV 42%" must be output as "PCV: 0.42", not "PCV: 42" — outputting the raw 42 would be read as
+  an impossibly high L/L value and is wrong). If the value is already printed as a decimal below 1 (e.g. "0.42"),
+  output it unchanged.
 - For the WBC differential (Neutrophils, Lymphocytes, Monocytes, Eosinophils, Basophils), reports often print both a
   percentage (%) column and an absolute count column (labelled e.g. "Neutrophil count", usually in x10^9/L or the
   equivalent x10^3/uL — same number, no conversion needed). Always use the absolute COUNT column, never the percentage.
