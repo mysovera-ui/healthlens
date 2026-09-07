@@ -12,6 +12,12 @@ const RISK_COLOR: Record<RiskLevel, string> = {
   low: "#276749",
   none: "#9CA3AF",
 };
+const RISK_LABEL: Record<RiskLevel, { en: string; bm: string }> = {
+  high: { en: "High Risk Level", bm: "Tahap Risiko Tinggi" },
+  moderate: { en: "Moderate Risk Level", bm: "Tahap Risiko Sederhana" },
+  low: { en: "Low Risk Level", bm: "Tahap Risiko Rendah" },
+  none: { en: "No Risk Flagged", bm: "Tiada Risiko Ditandakan" },
+};
 
 const s = StyleSheet.create({
   page: { padding: 46, fontSize: 9.5, fontFamily: "Times-Roman", color: INK },
@@ -196,10 +202,9 @@ export function ReportDocument({
         <View style={{ marginTop: 14 }}>
           <Text style={{ fontFamily: "Times-Bold" }}>
             Overall Status / Status Keseluruhan:{" "}
-            <Text style={{ color: RISK_COLOR[report.overallRisk] }}>{report.overallRisk.toUpperCase()}</Text>
+            <Text style={{ color: RISK_COLOR[report.overallRisk] }}>{RISK_LABEL[report.overallRisk].en}</Text>
           </Text>
-          <Text style={{ marginTop: 4 }}>{report.overallRiskReason}</Text>
-          <Text style={s.bmText}>{report.overallRiskReasonBM}</Text>
+          <Text style={s.bmText}>{RISK_LABEL[report.overallRisk].bm}</Text>
         </View>
         <Footer />
       </Page>
@@ -209,16 +214,26 @@ export function ReportDocument({
         <Text style={s.h1}>III. Report Analysis (by panel)</Text>
         <Text style={s.h1BM}>Analisis Laporan (mengikut panel)</Text>
         {report.panels.map((p) => (
-          <View key={p.key} wrap={false} style={{ marginBottom: 10 }}>
-            <Text style={s.h2}>{p.label}</Text>
-            <View style={s.tableHeader}>
-              <Text style={[s.tableHeaderText, s.colParam]}>PARAMETER</Text>
-              <Text style={[s.tableHeaderText, s.colVal]}>RESULT</Text>
-              <Text style={[s.tableHeaderText, s.colRange]}>REFERENCE</Text>
-              <Text style={[s.tableHeaderText, s.colComment]}>COMMENT / KOMEN</Text>
+          // Note: no wrap={false} on the panel as a whole — a panel with many
+          // parameters (e.g. Hematology, ~17 rows) can be taller than a
+          // single page, and forcing an oversized block to stay unbroken
+          // corrupts react-pdf's layout (rows render with overlapping text
+          // instead of properly paginating). Only the panel title + table
+          // header are kept together so they don't get orphaned alone at the
+          // bottom of a page, and each individual row is kept unbroken so a
+          // single finding's sentence never splits mid-text across a page.
+          <View key={p.key} style={{ marginBottom: 10 }}>
+            <View wrap={false}>
+              <Text style={s.h2}>{p.label}</Text>
+              <View style={s.tableHeader}>
+                <Text style={[s.tableHeaderText, s.colParam]}>PARAMETER</Text>
+                <Text style={[s.tableHeaderText, s.colVal]}>RESULT</Text>
+                <Text style={[s.tableHeaderText, s.colRange]}>REFERENCE</Text>
+                <Text style={[s.tableHeaderText, s.colComment]}>COMMENT / KOMEN</Text>
+              </View>
             </View>
             {p.findings.map((f, i) => (
-              <View style={[s.tableRow, i % 2 === 1 ? s.tableRowShaded : {}]} key={i}>
+              <View style={[s.tableRow, i % 2 === 1 ? s.tableRowShaded : {}]} key={i} wrap={false}>
                 <Text style={s.colParam}>{f.parameter}</Text>
                 <Text style={[s.colVal, f.status === "flagged" ? { color: RISK_COLOR.high, fontFamily: "Times-Bold" } : {}]}>{f.rawValue}</Text>
                 <Text style={s.colRange}>{f.refRange ?? "—"}</Text>
